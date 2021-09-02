@@ -1,9 +1,8 @@
 use crate::context::Handler;
 use crate::internal::AssertSend;
 use crate::{
-    Args, Call, ConstValue, FromValue, GuardedArgs, Hash, RawRef, Ref, Rtti, RuntimeContext,
-    Shared, Stack, Tuple, Unit, UnsafeFromValue, Value, VariantRtti, Vm, VmCall, VmError,
-    VmErrorKind, VmHalt,
+    Args, Call, ConstValue, FromValue, Hash, RawRef, Ref, Rtti, RuntimeContext, Shared, Stack,
+    Tuple, Unit, UnsafeFromValue, Value, VariantRtti, Vm, VmCall, VmError, VmErrorKind, VmHalt,
 };
 use std::fmt;
 use std::future::Future;
@@ -132,6 +131,19 @@ impl Function {
 }
 
 impl SyncFunction {
+    /// Perform an asynchronous call over the function which also implements
+    /// `Send`.
+    pub fn async_send_call<'a, A, T>(
+        &'a self,
+        args: A,
+    ) -> impl Future<Output = Result<T, VmError>> + Send + 'a
+    where
+        A: 'a + Send + Args,
+        T: 'a + Send + FromValue,
+    {
+        self.0.async_send_call(args)
+    }
+
     /// Perform a call over the function represented by this function pointer.
     pub fn call<A, T>(&self, args: A) -> Result<T, VmError>
     where
@@ -139,6 +151,11 @@ impl SyncFunction {
         T: FromValue,
     {
         self.0.call(args)
+    }
+
+    /// Hash for the function type
+    pub fn type_hash(&self) -> Hash {
+        self.0.type_hash()
     }
 }
 
