@@ -1,20 +1,20 @@
 use crate::context::Handler;
 use crate::internal::AssertSend;
-use crate::VmErrorKind;
 use crate::{
-    Args, Call, ConstValue, FromValue, Hash, RawRef, Ref, Rtti, RuntimeContext, Shared, Stack,
-    Tuple, Unit, UnsafeFromValue, Value, VariantRtti, Vm, VmCall, VmError, VmHalt,
+    Args, Call, ConstValue, FromValue, GuardedArgs, Hash, RawRef, Ref, Rtti, RuntimeContext,
+    Shared, Stack, Tuple, Unit, UnsafeFromValue, Value, VariantRtti, Vm, VmCall, VmError,
+    VmErrorKind, VmHalt,
 };
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
 
 /// A callable non-sync function.
-pub type Function = FunctionImpl<Value>;
+pub struct Function(FunctionImpl<Value>);
 
 /// A callable sync function. This currently only supports a subset of values
 /// that are supported by the Vm.
-pub type SyncFunction = FunctionImpl<ConstValue>;
+pub struct SyncFunction(FunctionImpl<ConstValue>);
 
 /// A stored function, of some specific kind.
 pub struct FunctionImpl<V>
@@ -25,13 +25,130 @@ where
     inner: Inner<V>,
 }
 
-/// A callable non-sync raw.
-pub type RawFunction = RawImpl;
-
-/// A stored raw, of some specific kind.
+/// A callable raw function, without captures or other data.
 #[derive(Clone)]
-pub struct RawImpl {
+pub struct RawFunction {
     inner: RawInner,
+}
+
+impl Function {
+    /// Perform an asynchronous call over the function which also implements
+    /// `Send`.
+    pub fn async_send_call<'a, A, T>(
+        &'a self,
+        args: A,
+    ) -> impl Future<Output = Result<T, VmError>> + Send + 'a
+    where
+        A: 'a + Send + Args,
+        T: 'a + Send + FromValue,
+    {
+        self.0.async_send_call(args)
+    }
+
+    /// Perform a call over the function represented by this function pointer.
+    pub fn call<A, T>(&self, args: A) -> Result<T, VmError>
+    where
+        A: Args,
+        T: FromValue,
+    {
+        self.0.call(args)
+    }
+
+    /// Call with the given virtual machine. This allows for certain
+    /// optimizations, like avoiding the allocation of a new vm state in case
+    /// the call is internal.
+    ///
+    /// A stop reason will be returned in case the function call results in
+    /// a need to suspend the execution.
+    pub(crate) fn call_with_vm(&self, vm: &mut Vm, args: usize) -> Result<Option<VmHalt>, VmError> {
+        self.0.call_with_vm(vm, args)
+    }
+
+    /// Create a function pointer from a handler.
+    pub(crate) fn from_handler(handler: Arc<Handler>, hash: Hash) -> Self {
+        Self(FunctionImpl::from_handler(handler, hash))
+    }
+
+    /// Create a function pointer from an offset.
+    pub(crate) fn from_offset(
+        context: Arc<RuntimeContext>,
+        unit: Arc<Unit>,
+        offset: usize,
+        call: Call,
+        args: usize,
+        hash: Hash,
+    ) -> Self {
+        Self(FunctionImpl::from_offset(
+            context, unit, offset, call, args, hash,
+        ))
+    }
+
+    /// Create a function pointer from an offset.
+    pub(crate) fn from_closure(
+        context: Arc<RuntimeContext>,
+        unit: Arc<Unit>,
+        offset: usize,
+        call: Call,
+        args: usize,
+        environment: Box<[Value]>,
+        hash: Hash,
+    ) -> Self {
+        Self(FunctionImpl::from_closure(
+            context,
+            unit,
+            offset,
+            call,
+            args,
+            environment,
+            hash,
+        ))
+    }
+
+    /// Create a function pointer from an offset.
+    pub(crate) fn from_unit_struct(rtti: Arc<Rtti>) -> Self {
+        Self(FunctionImpl::from_unit_struct(rtti))
+    }
+
+    /// Create a function pointer from an offset.
+    pub(crate) fn from_tuple_struct(rtti: Arc<Rtti>, args: usize) -> Self {
+        Self(FunctionImpl::from_tuple_struct(rtti, args))
+    }
+
+    /// Create a function pointer that constructs a empty variant.
+    pub(crate) fn from_unit_variant(rtti: Arc<VariantRtti>) -> Self {
+        Self(FunctionImpl::from_unit_variant(rtti))
+    }
+
+    /// Create a function pointer that constructs a tuple variant.
+    pub(crate) fn from_tuple_variant(rtti: Arc<VariantRtti>, args: usize) -> Self {
+        Self(FunctionImpl::from_tuple_variant(rtti, args))
+    }
+
+    /// Try to convert into a [SyncFunction].
+    pub fn into_sync(self) -> Result<SyncFunction, VmError> {
+        self.0.into_sync()
+    }
+
+    /// Hash for the function type
+    pub fn type_hash(&self) -> Hash {
+        self.0.type_hash()
+    }
+
+    /// Converts self into a raw function pointer
+    pub fn into_raw(self) -> Option<RawFunction> {
+        self.0.into_raw()
+    }
+}
+
+impl SyncFunction {
+    /// Perform a call over the function represented by this function pointer.
+    pub fn call<A, T>(&self, args: A) -> Result<T, VmError>
+    where
+        A: Args,
+        T: FromValue,
+    {
+        self.0.call(args)
+    }
 }
 
 impl<V> FunctionImpl<V>
@@ -265,6 +382,7 @@ where
         Ok(())
     }
 
+    /// Hash for the function type
     #[inline]
     pub fn type_hash(&self) -> Hash {
         match &self.inner {
@@ -282,10 +400,10 @@ where
     /// Converts self into a raw function pointer
     pub fn into_raw(self) -> Option<RawFunction> {
         match self.inner {
-            Inner::FnHandler(handler) => Some(RawImpl {
+            Inner::FnHandler(handler) => Some(RawFunction {
                 inner: RawInner::FnHandler(handler),
             }),
-            Inner::FnOffset(offset) => Some(RawImpl {
+            Inner::FnOffset(offset) => Some(RawFunction {
                 inner: RawInner::FnOffset(offset),
             }),
             _ => None,
@@ -317,13 +435,13 @@ impl FunctionImpl<Value> {
             Inner::FnTupleVariant(inner) => Inner::FnTupleVariant(inner),
         };
 
-        Ok(SyncFunction { inner })
+        Ok(SyncFunction(FunctionImpl { inner }))
     }
 }
 
 impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.inner {
+        match &self.0.inner {
             Inner::FnHandler(handler) => {
                 write!(f, "native function ({:p})", handler.handler.as_ref())?;
             }
@@ -355,27 +473,30 @@ impl fmt::Debug for Function {
     }
 }
 
-impl RawImpl {
+impl RawFunction {
     /// Perform a call over the function represented by this function pointer.
     pub fn call<A, T>(&self, args: A) -> Result<T, VmError>
     where
-        A: Args,
+        A: GuardedArgs,
         T: FromValue,
     {
         let value = match &self.inner {
             RawInner::FnHandler(handler) => {
                 let arg_count = args.count();
                 let mut stack = Stack::with_capacity(arg_count);
-                args.into_stack(&mut stack)?;
+                unsafe {
+                    args.unsafe_into_stack(&mut stack)?;
+                }
                 (handler.handler)(&mut stack, arg_count)?;
                 stack.pop()?
             }
-            RawInner::FnOffset(fn_offset) => fn_offset.call(args, ())?,
+            RawInner::FnOffset(fn_offset) => fn_offset.call_guarded(args, ())?,
         };
 
         T::from_value(value)
     }
 
+    /// Get the type hash of this function.
     #[inline]
     pub fn type_hash(&self) -> Hash {
         match &self.inner {
@@ -468,12 +589,31 @@ struct FnOffset {
 
 impl FnOffset {
     /// Perform a call into the specified offset and return the produced value.
+    fn call_guarded<A, E>(&self, args: A, extra: E) -> Result<Value, VmError>
+    where
+        A: GuardedArgs,
+        E: Args,
+    {
+        FunctionImpl::<Value>::check_args(args.count(), self.args)?;
+
+        let mut vm = Vm::new(self.context.clone(), self.unit.clone());
+
+        vm.set_ip(self.offset);
+        unsafe {
+            args.unsafe_into_stack(vm.stack_mut())?;
+        }
+        extra.into_stack(vm.stack_mut())?;
+
+        self.call.call_with_vm(vm)
+    }
+
+    /// Perform a call into the specified offset and return the produced value.
     fn call<A, E>(&self, args: A, extra: E) -> Result<Value, VmError>
     where
         A: Args,
         E: Args,
     {
-        Function::check_args(args.count(), self.args)?;
+        FunctionImpl::<Value>::check_args(args.count(), self.args)?;
 
         let mut vm = Vm::new(self.context.clone(), self.unit.clone());
 
@@ -492,7 +632,7 @@ impl FnOffset {
     where
         E: Args,
     {
-        Function::check_args(args, self.args)?;
+        FunctionImpl::<Value>::check_args(args, self.args)?;
 
         // Fast past, just allocate a call frame and keep running.
         if let Call::Immediate = self.call {
