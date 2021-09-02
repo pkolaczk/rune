@@ -14,9 +14,11 @@ pub struct Function(FunctionImpl<Value>);
 
 /// A callable sync function. This currently only supports a subset of values
 /// that are supported by the Vm.
+#[derive(Clone)]
 pub struct SyncFunction(FunctionImpl<ConstValue>);
 
 /// A stored function, of some specific kind.
+#[derive(Clone)]
 pub struct FunctionImpl<V>
 where
     V: Clone,
@@ -521,7 +523,7 @@ impl fmt::Debug for RawFunction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Inner<V> {
     /// A native function handler.
     /// This is wrapped as an `Arc<dyn Handler>`.
@@ -663,7 +665,7 @@ impl fmt::Debug for FnOffset {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FnClosureOffset<V> {
     /// The offset in the associated unit that the function lives.
     fn_offset: FnOffset,
@@ -671,13 +673,13 @@ struct FnClosureOffset<V> {
     environment: Box<[V]>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FnUnitStruct {
     /// The type of the empty.
     rtti: Arc<Rtti>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FnTupleStruct {
     /// The type of the tuple.
     rtti: Arc<Rtti>,
@@ -685,13 +687,13 @@ struct FnTupleStruct {
     args: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FnUnitVariant {
     /// Runtime information fo variant.
     rtti: Arc<VariantRtti>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FnTupleVariant {
     /// Runtime information fo variant.
     rtti: Arc<VariantRtti>,
