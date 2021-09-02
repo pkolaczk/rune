@@ -27,12 +27,6 @@ where
     inner: Inner<V>,
 }
 
-/// A callable raw function, without captures or other data.
-#[derive(Clone)]
-pub struct RawFunction {
-    inner: RawInner,
-}
-
 impl Function {
     /// Perform an asynchronous call over the function which also implements
     /// `Send`.
@@ -134,11 +128,6 @@ impl Function {
     /// Hash for the function type
     pub fn type_hash(&self) -> Hash {
         self.0.type_hash()
-    }
-
-    /// Converts self into a raw function pointer
-    pub fn into_raw(self) -> Option<RawFunction> {
-        self.0.into_raw()
     }
 }
 
@@ -398,19 +387,6 @@ where
             Inner::FnTupleVariant(func) => func.rtti.hash,
         }
     }
-
-    /// Converts self into a raw function pointer
-    pub fn into_raw(self) -> Option<RawFunction> {
-        match self.inner {
-            Inner::FnHandler(handler) => Some(RawFunction {
-                inner: RawInner::FnHandler(handler),
-            }),
-            Inner::FnOffset(offset) => Some(RawFunction {
-                inner: RawInner::FnOffset(offset),
-            }),
-            _ => None,
-        }
-    }
 }
 
 impl FunctionImpl<Value> {
@@ -475,54 +451,6 @@ impl fmt::Debug for Function {
     }
 }
 
-impl RawFunction {
-    /// Perform a call over the function represented by this function pointer.
-    pub fn call<A, T>(&self, args: A) -> Result<T, VmError>
-    where
-        A: GuardedArgs,
-        T: FromValue,
-    {
-        let value = match &self.inner {
-            RawInner::FnHandler(handler) => {
-                let arg_count = args.count();
-                let mut stack = Stack::with_capacity(arg_count);
-                unsafe {
-                    args.unsafe_into_stack(&mut stack)?;
-                }
-                (handler.handler)(&mut stack, arg_count)?;
-                stack.pop()?
-            }
-            RawInner::FnOffset(fn_offset) => fn_offset.call_guarded(args, ())?,
-        };
-
-        T::from_value(value)
-    }
-
-    /// Get the type hash of this function.
-    #[inline]
-    pub fn type_hash(&self) -> Hash {
-        match &self.inner {
-            RawInner::FnHandler(FnHandler { hash, .. })
-            | RawInner::FnOffset(FnOffset { hash, .. }) => *hash,
-        }
-    }
-}
-
-impl fmt::Debug for RawFunction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.inner {
-            RawInner::FnHandler(handler) => {
-                write!(f, "native function ({:p})", handler.handler.as_ref())?;
-            }
-            RawInner::FnOffset(offset) => {
-                write!(f, "dynamic function (at: 0x{:x})", offset.offset)?;
-            }
-        }
-
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone)]
 enum Inner<V> {
     /// A native function handler.
@@ -546,18 +474,6 @@ enum Inner<V> {
     FnUnitVariant(FnUnitVariant),
     /// Constructor for a tuple variant.
     FnTupleVariant(FnTupleVariant),
-}
-
-#[derive(Debug, Clone)]
-enum RawInner {
-    /// A native function handler.
-    /// This is wrapped as an `Arc<dyn Handler>`.
-    FnHandler(FnHandler),
-    /// The offset to a free function.
-    ///
-    /// This also captures the context and unit it belongs to allow for external
-    /// calls.
-    FnOffset(FnOffset),
 }
 
 #[derive(Clone)]
@@ -590,25 +506,6 @@ struct FnOffset {
 }
 
 impl FnOffset {
-    /// Perform a call into the specified offset and return the produced value.
-    fn call_guarded<A, E>(&self, args: A, extra: E) -> Result<Value, VmError>
-    where
-        A: GuardedArgs,
-        E: Args,
-    {
-        FunctionImpl::<Value>::check_args(args.count(), self.args)?;
-
-        let mut vm = Vm::new(self.context.clone(), self.unit.clone());
-
-        vm.set_ip(self.offset);
-        unsafe {
-            args.unsafe_into_stack(vm.stack_mut())?;
-        }
-        extra.into_stack(vm.stack_mut())?;
-
-        self.call.call_with_vm(vm)
-    }
-
     /// Perform a call into the specified offset and return the produced value.
     fn call<A, E>(&self, args: A, extra: E) -> Result<Value, VmError>
     where
