@@ -200,7 +200,7 @@ pub use crate::bytes::Bytes;
 pub use crate::call::Call;
 pub use crate::context::{Context, ContextError, ContextSignature, ContextTypeInfo};
 pub use crate::debug::{DebugInfo, DebugInst};
-pub use crate::function::{Function, SyncFunction};
+pub use crate::function::{Function, RawFunction, SyncFunction};
 pub use crate::future::Future;
 pub use crate::hash::{Hash, IntoTypeHash};
 pub use crate::inst::{

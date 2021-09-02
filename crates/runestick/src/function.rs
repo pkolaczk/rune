@@ -25,6 +25,15 @@ where
     inner: Inner<V>,
 }
 
+/// A callable non-sync raw.
+pub type RawFunction = RawImpl;
+
+/// A stored raw, of some specific kind.
+#[derive(Clone)]
+pub struct RawImpl {
+    inner: RawInner,
+}
+
 impl<V> FunctionImpl<V>
 where
     V: Clone,
@@ -269,6 +278,19 @@ where
             Inner::FnTupleVariant(func) => func.rtti.hash,
         }
     }
+
+    /// Converts self into a raw function pointer
+    pub fn into_raw(self) -> Option<RawFunction> {
+        match self.inner {
+            Inner::FnHandler(handler) => Some(RawImpl {
+                inner: RawInner::FnHandler(handler),
+            }),
+            Inner::FnOffset(offset) => Some(RawImpl {
+                inner: RawInner::FnOffset(offset),
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl FunctionImpl<Value> {
@@ -333,6 +355,51 @@ impl fmt::Debug for Function {
     }
 }
 
+impl RawImpl {
+    /// Perform a call over the function represented by this function pointer.
+    pub fn call<A, T>(&self, args: A) -> Result<T, VmError>
+    where
+        A: Args,
+        T: FromValue,
+    {
+        let value = match &self.inner {
+            RawInner::FnHandler(handler) => {
+                let arg_count = args.count();
+                let mut stack = Stack::with_capacity(arg_count);
+                args.into_stack(&mut stack)?;
+                (handler.handler)(&mut stack, arg_count)?;
+                stack.pop()?
+            }
+            RawInner::FnOffset(fn_offset) => fn_offset.call(args, ())?,
+        };
+
+        T::from_value(value)
+    }
+
+    #[inline]
+    pub fn type_hash(&self) -> Hash {
+        match &self.inner {
+            RawInner::FnHandler(FnHandler { hash, .. })
+            | RawInner::FnOffset(FnOffset { hash, .. }) => *hash,
+        }
+    }
+}
+
+impl fmt::Debug for RawFunction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.inner {
+            RawInner::FnHandler(handler) => {
+                write!(f, "native function ({:p})", handler.handler.as_ref())?;
+            }
+            RawInner::FnOffset(offset) => {
+                write!(f, "dynamic function (at: 0x{:x})", offset.offset)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 enum Inner<V> {
     /// A native function handler.
@@ -358,6 +425,19 @@ enum Inner<V> {
     FnTupleVariant(FnTupleVariant),
 }
 
+#[derive(Debug, Clone)]
+enum RawInner {
+    /// A native function handler.
+    /// This is wrapped as an `Arc<dyn Handler>`.
+    FnHandler(FnHandler),
+    /// The offset to a free function.
+    ///
+    /// This also captures the context and unit it belongs to allow for external
+    /// calls.
+    FnOffset(FnOffset),
+}
+
+#[derive(Clone)]
 struct FnHandler {
     /// The function handler.
     handler: Arc<Handler>,
