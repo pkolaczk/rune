@@ -29,15 +29,12 @@ where
 impl Function {
     /// Perform an asynchronous call over the function which also implements
     /// `Send`.
-    pub fn async_send_call<'a, A, T>(
-        &'a self,
-        args: A,
-    ) -> impl Future<Output = Result<T, VmError>> + Send + 'a
+    pub async fn async_send_call<'a, A, T>(&'a self, args: A) -> Result<T, VmError>
     where
         A: 'a + Send + Args,
         T: 'a + Send + FromValue,
     {
-        self.0.async_send_call(args)
+        self.0.async_send_call(args).await
     }
 
     /// Perform a call over the function represented by this function pointer.
@@ -133,15 +130,12 @@ impl Function {
 impl SyncFunction {
     /// Perform an asynchronous call over the function which also implements
     /// `Send`.
-    pub fn async_send_call<'a, A, T>(
-        &'a self,
-        args: A,
-    ) -> impl Future<Output = Result<T, VmError>> + Send + 'a
+    pub async fn async_send_call<'a, A, T>(&'a self, args: A) -> Result<T, VmError>
     where
         A: 'a + Send + Args,
         T: 'a + Send + FromValue,
     {
-        self.0.async_send_call(args)
+        self.0.async_send_call(args).await
     }
 
     /// Perform a call over the function represented by this function pointer.
