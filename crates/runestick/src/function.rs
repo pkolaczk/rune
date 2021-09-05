@@ -29,10 +29,10 @@ where
 impl Function {
     /// Perform an asynchronous call over the function which also implements
     /// `Send`.
-    pub async fn async_send_call<'a, A, T>(&'a self, args: A) -> Result<T, VmError>
+    pub async fn async_send_call<A, T>(&self, args: A) -> Result<T, VmError>
     where
-        A: 'a + Send + Args,
-        T: 'a + Send + FromValue,
+        A: Send + Args,
+        T: Send + FromValue,
     {
         self.0.async_send_call(args).await
     }
@@ -130,10 +130,10 @@ impl Function {
 impl SyncFunction {
     /// Perform an asynchronous call over the function which also implements
     /// `Send`.
-    pub async fn async_send_call<'a, A, T>(&'a self, args: A) -> Result<T, VmError>
+    pub async fn async_send_call<A, T>(&self, args: A) -> Result<T, VmError>
     where
-        A: 'a + Send + Args,
-        T: 'a + Send + FromValue,
+        A: Send + Args,
+        T: Send + FromValue,
     {
         self.0.async_send_call(args).await
     }
