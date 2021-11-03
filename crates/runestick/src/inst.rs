@@ -1232,7 +1232,8 @@ impl fmt::Display for Inst {
 pub enum InstAddress {
     /// Addressed from the top of the stack.
     Top,
-    /// Value addressed at the given offset.
+    /// Value addressed at the given positive offset from the current call
+    /// frame.
     Offset(usize),
 }
 

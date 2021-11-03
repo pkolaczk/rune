@@ -1435,9 +1435,7 @@ impl Vm {
     /// stack.
     #[cfg_attr(feature = "bench", inline(never))]
     fn op_clean(&mut self, n: usize) -> Result<(), VmError> {
-        let value = self.stack.pop()?;
-        self.op_popn(n)?;
-        self.stack.push(value);
+        self.stack.clean(n)?;
         Ok(())
     }
 

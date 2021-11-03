@@ -2,6 +2,7 @@ use crate::{InstAddress, Value};
 use std::borrow::Cow;
 use std::iter;
 use std::mem;
+use std::ptr;
 use std::slice;
 use thiserror::Error;
 
@@ -219,6 +220,37 @@ impl Stack {
     pub(crate) fn pop_stack_top(&mut self, stack_bottom: usize) -> Result<(), StackError> {
         self.check_stack_top()?;
         self.stack_bottom = stack_bottom;
+        Ok(())
+    }
+
+    /// Clean n number of values off the stack.
+    pub(crate) fn clean(&mut self, n: usize) -> Result<(), StackError> {
+        if n == 0 {
+            return Ok(());
+        }
+
+        let i = match self.stack.len().checked_sub(n.wrapping_add(1)) {
+            Some(i) => i,
+            None => return Err(StackError(())),
+        };
+
+        // Safety: We check for 0 just above, so we know last and i do not point
+        // to the same element.
+        unsafe {
+            let last = self
+                .stack
+                .as_mut_ptr()
+                .add(self.stack.len().wrapping_sub(1));
+            let mut cur = self.stack.as_mut_ptr().add(i);
+            ptr::swap(last, cur);
+            self.stack.set_len(i.wrapping_add(1));
+
+            while !ptr::eq(cur, last) {
+                cur = cur.add(1);
+                ptr::drop_in_place(cur);
+            }
+        }
+
         Ok(())
     }
 }
